@@ -1,0 +1,39 @@
+{
+  "name": "clawmonitor",
+  "version": "1.0.0",
+  "description": "Real-time OpenClaw tool call monitor — watch all agent sessions with readable names and sorted output",
+  "bin": {
+    "clawmonitor": "./bin/clawmonitor.sh"
+  },
+  "scripts": {
+    "test": "bash -n bin/clawmonitor.sh"
+  },
+  "keywords": [
+    "openclaw",
+    "monitor",
+    "tool-calls",
+    "debug",
+    "cli"
+  ],
+  "author": "reopenpilot",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/",
+    "README.md",
+    "README.zh-CN.md",
+    "README.zh-TW.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/reopenpilot/clawmonitor.git"
+  },
+  "dependencies": {},
+  "homepage": "https://github.com/reopenpilot/clawmonitor#readme",
+  "bugs": {
+    "url": "https://github.com/reopenpilot/clawmonitor/issues"
+  }
+}

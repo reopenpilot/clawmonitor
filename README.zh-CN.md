@@ -6,10 +6,25 @@
 
 实时 OpenClaw tool call 监控器。
 
+## 为什么需要？
+
+OpenClaw 是强大的个人 AI 助手，但缺乏内置方式实时观察 agent 实际在做什么。调试 prompt、优化工具使用、理解 agent 行为时，只能凭猜测。
+
+**ClawMonitor 补足了这个缺口。** 实时、统一地呈现所有 agent 和 session 的 tool call。
+
+- OpenClaw 只显示最终回应，看不到背后的 tool calls
+- Session logs 是原始 JSONL — 难读且非实时
+- ClawMonitor 让 agent 行为透明化：哪些工具被调用、带什么参数、跨哪些 session，按时间排序
+
 ## 安装
 
 ```bash
+# 不安装直接运行
 npx clawmonitor
+
+# 或全局安装
+npm install -g clawmonitor
+clawmonitor
 ```
 
 ## 功能

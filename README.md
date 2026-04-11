@@ -42,7 +42,6 @@ clawmonitor
 ```
 clawmonitor [options]
 
-  --all        Monitor all sessions (no time filter)
   --compact    Compact one-line output
   --history N  Show last N history entries (default: 10)
   --full       Show full input/output (no truncation)

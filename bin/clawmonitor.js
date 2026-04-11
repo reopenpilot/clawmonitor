@@ -8,7 +8,7 @@ const os = require('os');
 
 // === Args ===
 const argv = process.argv.slice(2);
-const opts = { compact: argv.includes('--compact'), all: argv.includes('--all'), full: argv.includes('--full'), history: 10 };
+const opts = { compact: argv.includes('--compact'), full: argv.includes('--full'), history: 10 };
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--history') { opts.history = parseInt(argv[i + 1]) || 10; i++; }
   else if (argv[i] === '--help' || argv[i] === '-h') {
@@ -16,7 +16,6 @@ for (let i = 0; i < argv.length; i++) {
 
 Usage: clawmonitor [options]
 
-  --all        Monitor all sessions (no time filter)
   --compact    Compact one-line output
   --history N  Show last N history entries (default: 10)
   --full       Show full input/output (no truncation)
@@ -84,7 +83,7 @@ function findDir() {
 }
 
 const DIR = findDir();
-const TIME = opts.all ? 0 : 30;
+const TIME = 0;
 
 // === Sessions ===
 function findSessions() {

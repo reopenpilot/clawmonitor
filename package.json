@@ -1,6 +1,6 @@
 {
   "name": "clawmonitor",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Real-time OpenClaw tool call monitor with TUI, JSON highlighting, and zero dependencies",
   "bin": "./bin/clawmonitor.js",
   "scripts": {

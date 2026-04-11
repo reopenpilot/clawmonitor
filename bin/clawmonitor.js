@@ -206,7 +206,11 @@ const durColor = (d) => {
 // Pad a string to exactly N terminal columns (right-pad with spaces)
 const padTo = (s, n) => {
   const w = strWidth(s);
-  if (w >= n) return s;
+  if (w > n) {
+    // Hard truncate to fit — strip ANSI, truncate, re-add border color
+    const plain = stripAnsi(s);
+    return truncTo(plain, n);
+  }
   return s + ' '.repeat(n - w);
 };
 
@@ -259,14 +263,14 @@ const strWidth = (s) => {
 
 // truncTo returns the truncated string. Also sets truncTo.consumed for caller.
 let _truncConsumed = 0;
-const truncTo = (s, maxCols) => {
+const truncTo = (s, maxCols, noEllipsis) => {
   _truncConsumed = 0;
   if (!s) return s;
   // Fast path: pure ASCII
   if (/^[\x20-\x7E]*$/.test(s)) {
     if (s.length <= maxCols) { _truncConsumed = s.length; return s; }
     _truncConsumed = maxCols;
-    return s.slice(0, maxCols) + '\u2026';
+    return noEllipsis ? s.slice(0, maxCols) : s.slice(0, maxCols) + '\u2026';
   }
   let w = 0, chars = [];
   for (const {segment} of segmenter.segment(s)) {
@@ -279,7 +283,7 @@ const truncTo = (s, maxCols) => {
   }
   const result = chars.join('');
   if (_truncConsumed < s.length) {
-    return result + '\u2026';
+    return noEllipsis ? result : result + '\u2026';
   }
   return result;
 };
@@ -312,17 +316,17 @@ function wrapArg(key, val, maxCols, keyW) {
   const out = [];
   let text = s;
   let lineIdx = 0;
-  while (text.length > 0 && lineIdx < (opts.full ? 999 : 3)) {
-    const maxL = opts.full ? 999 : 3;
-    const isLast = lineIdx === maxL - 1;
+  const maxL = opts.full ? 999 : 3;
+  while (text.length > 0 && lineIdx < maxL) {
+    const isLast = !opts.full && lineIdx === maxL - 1;
     const budget = isLast ? maxValW - 1 : maxValW;
-    const chunk = truncTo(text, budget);
+    const chunk = truncTo(text, budget, !isLast); // only add … on last line
     out.push({ key, indent: lineIdx === 0 ? null : indent, val: chunk });
     text = text.slice(_truncConsumed);
     lineIdx++;
     if (!text) break;
     if (isLast && text) {
-      out[out.length - 1].val = truncTo(chunk, budget - 1) + '\u2026';
+      out[out.length - 1].val = chunk.endsWith('\u2026') ? chunk : chunk + '\u2026';
       break;
     }
   }
@@ -386,10 +390,23 @@ const colorToken = (t) => {
 
 // Wrap tokens into lines, respecting token boundaries
 function wrapTokens(tokens, maxCols, maxLines) {
+  const fullMode = maxLines >= 999;
   const lines = [];
   let lineTokens = [];
   let lineW = 0;
   let linesUsed = 0;
+
+  // Split a string to fit maxCols without adding ellipsis
+  const splitFit = (s, cols) => {
+    let w = 0, i = 0;
+    for (const {segment} of segmenter.segment(s)) {
+      const cw = charWidth(segment);
+      if (w + cw > cols) break;
+      w += cw;
+      i += segment.length;
+    }
+    return { text: s.slice(0, i), consumed: i, rest: s.slice(i) };
+  };
 
   for (let ti = 0; ti < tokens.length; ti++) {
     const t = tokens[ti];
@@ -405,31 +422,32 @@ function wrapTokens(tokens, maxCols, maxLines) {
       continue;
     }
 
-    // Token doesn't fit — split it to fill remaining space
+    // Token doesn't fit — split it
     if (lineTokens.length > 0 && remaining > 5) {
-      // Split token: put first part on current line
-      const head = truncTo(t.text, remaining);
-      lineTokens.push({ ...t, text: head });
+      const sp = splitFit(t.text, remaining);
+      lineTokens.push({ ...t, text: sp.text });
       lines.push(lineTokens);
       linesUsed++;
       lineTokens = [];
       lineW = 0;
 
-      // Put rest on next line(s)
-      let rest = t.text.slice(_truncConsumed);
-      if (rest && linesUsed < maxLines) {
-        while (rest && linesUsed < maxLines) {
-          const isLast = linesUsed === maxLines - 1;
-          const budget = isLast ? maxCols - 1 : maxCols;
-          const chunk = truncTo(rest, budget);
-          lines.push([{ ...t, text: chunk }]);
+      let rest = sp.rest;
+      while (rest && linesUsed < maxLines) {
+        const isLast = !fullMode && linesUsed === maxLines - 1;
+        if (isLast) {
+          // Last line: truncate with ellipsis
+          const chunk = truncTo(rest, maxCols - 1);
+          lines.push([{ ...t, text: chunk + '\u2026' }]);
           linesUsed++;
-          rest = rest.slice(_truncConsumed);
-          if (chunk.endsWith('\u2026')) break;
+          rest = '';
+        } else {
+          const sp2 = splitFit(rest, maxCols);
+          lines.push([{ ...t, text: sp2.text }]);
+          linesUsed++;
+          rest = sp2.rest;
         }
       }
     } else {
-      // Flush current line, start fresh
       if (lineTokens.length > 0) {
         lines.push(lineTokens);
         linesUsed++;
@@ -438,28 +456,34 @@ function wrapTokens(tokens, maxCols, maxLines) {
       }
       if (linesUsed >= maxLines) break;
 
-      // Split token onto new line(s)
       let rest = t.text;
       while (rest && linesUsed < maxLines) {
-        const isLast = linesUsed === maxLines - 1;
-        const budget = isLast ? maxCols - 1 : maxCols;
-        const chunk = truncTo(rest, budget);
-        lines.push([{ ...t, text: chunk }]);
-        linesUsed++;
-        rest = rest.slice(_truncConsumed);
-        if (chunk.endsWith('\u2026')) break;
+        const isLast = !fullMode && linesUsed === maxLines - 1;
+        if (isLast) {
+          const chunk = truncTo(rest, maxCols - 1);
+          lines.push([{ ...t, text: chunk + '\u2026' }]);
+          linesUsed++;
+          rest = '';
+        } else {
+          const sp = splitFit(rest, maxCols);
+          lines.push([{ ...t, text: sp.text }]);
+          linesUsed++;
+          rest = sp.rest;
+        }
       }
     }
   }
   if (lineTokens.length > 0 && linesUsed < maxLines) lines.push(lineTokens);
 
-  while (lines.length > maxLines) lines.pop();
-  if (lines.length >= maxLines) {
-    const last = lines[lines.length - 1];
-    const lastStr = last.map(t => t.text).join('');
-    if (!lastStr.endsWith('\u2026')) {
-      const truncated = truncTo(lastStr, maxCols - 1);
-      lines[lines.length - 1] = [{ type: 'plain', text: truncated + '\u2026' }];
+  if (!fullMode) {
+    while (lines.length > maxLines) lines.pop();
+    if (lines.length >= maxLines) {
+      const last = lines[lines.length - 1];
+      const lastStr = last.map(t => t.text).join('');
+      if (!lastStr.endsWith('\u2026')) {
+        const truncated = truncTo(lastStr, maxCols - 1);
+        lines[lines.length - 1] = [{ type: 'plain', text: truncated + '\u2026' }];
+      }
     }
   }
 
@@ -471,22 +495,20 @@ const renderTokenLines = (tokenLines) => tokenLines.map(line => line.map(colorTo
 
 // Wrap result text into up to N lines, each fitting within maxCols
 function wrapResult(text, maxCols, maxLines) {
+  const fullMode = maxLines >= 999;
   const flat = text.replace(/[\r\n]/g, ' ').replace(/\s+/g, ' ').trim();
   const lines = [];
-  let remaining = flat;
-  while (remaining && lines.length < maxLines) {
-    const isLast = lines.length === maxLines - 1;
+  let pos = 0;
+  while (pos < flat.length && lines.length < maxLines) {
+    const isLast = !fullMode && lines.length === maxLines - 1;
+    // Non-last lines: no ellipsis, strict budget
+    // Last line: ellipsis, budget - 1 for …
     const budget = isLast ? maxCols - 1 : maxCols;
-    const chunk = truncTo(remaining, budget);
-    lines.push(chunk);
-    remaining = remaining.slice(_truncConsumed);
-    if (!remaining) break;
-    if (isLast) {
-      // Force … on last line if more text remains
-      if (!lines[lines.length - 1].endsWith('\u2026'))
-        lines[lines.length - 1] = truncTo(chunk, budget - 1) + '\u2026';
-      break;
-    }
+    const chunk = truncTo(flat.slice(pos), budget, !isLast); // noEllipsis for non-last
+    lines.push(isLast && !chunk.endsWith('\u2026') && pos + _truncConsumed < flat.length ? chunk + '\u2026' : chunk);
+    pos += _truncConsumed;
+    if (pos >= flat.length) break;
+    if (isLast) break;
   }
   return lines;
 }
@@ -507,7 +529,7 @@ function fmt(e, label) {
   }
 
   // Card layout — full width
-  const W = process.stdout.columns || 80;
+  const W = parseInt(process.env.COLUMNS) || process.stdout.columns || 80;
   const lines = [];
 
   // Top border
@@ -541,12 +563,12 @@ function fmt(e, label) {
     const isJson = flat.startsWith('{') || flat.startsWith('[');
     if (isJson) {
       const tokens = highlightJson(flat);
-      const tokenLines = wrapTokens(tokens, W - 10, opts.full ? 999 : 2);
+      const tokenLines = wrapTokens(tokens, W - 5, opts.full ? 999 : 2);
       for (const tl of renderTokenLines(tokenLines)) {
         lines.push(padTo(`${T.x('│')}   ${tl}`, W - 1) + T.x('│'));
       }
     } else {
-      const rLines = wrapResult(flat, W - 10, opts.full ? 999 : 2);
+      const rLines = wrapResult(flat, W - 5, opts.full ? 999 : 2);
       for (const rl of rLines) {
         lines.push(padTo(`${T.x('│')}   ${T.d(rl)}`, W - 1) + T.x('│'));
       }
@@ -562,7 +584,7 @@ function fmt(e, label) {
 function fmtLiveCall(tc, label) {
   const t = fmtT(tc.timestamp);
   const id = tc.id?.slice(0, 10) || '?';
-  const W = process.stdout.columns || 80;
+  const W = parseInt(process.env.COLUMNS) || process.stdout.columns || 80;
 
   if (opts.compact) {
     const args = Object.entries(tc.arguments || {}).slice(0, 2).map(([k, v]) => T.x(`${k}=`) + trunc(v, 50)).join(' ');
@@ -601,18 +623,18 @@ function fmtLiveResult(msg, ts) {
   if (opts.compact) {
     console.log(`  ${T.x('↳')} ${meta} ${T.d(trunc(rStr, 70))}`);
   } else {
-    const W = process.stdout.columns || 80;
+    const W = parseInt(process.env.COLUMNS) || process.stdout.columns || 80;
     console.log(padTo(`${T.x('│')} ${icon} ${T.b(name)}  ${meta}`, W - 1) + T.x('│'));
     const flat = rStr.replace(/[\r\n]/g, ' ').replace(/\s+/g, ' ').trim();
     const isJson = flat.startsWith('{') || flat.startsWith('[');
     if (isJson) {
       const tokens = highlightJson(flat);
-      const tokenLines = wrapTokens(tokens, W - 10, opts.full ? 999 : 2);
+      const tokenLines = wrapTokens(tokens, W - 5, opts.full ? 999 : 2);
       for (const tl of renderTokenLines(tokenLines)) {
         console.log(padTo(`${T.x('│')}   ${tl}`, W - 1) + T.x('│'));
       }
     } else {
-      const rLines = wrapResult(flat, W - 10, opts.full ? 999 : 2);
+      const rLines = wrapResult(flat, W - 5, opts.full ? 999 : 2);
       for (const rl of rLines) {
         console.log(padTo(`${T.x('│')}   ${T.d(rl)}`, W - 1) + T.x('│'));
       }
